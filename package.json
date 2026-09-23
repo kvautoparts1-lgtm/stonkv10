@@ -13,5 +13,10 @@
   "license": "MIT",
   "dependencies": {
     "@solana/web3.js": "^1.99.0"
+  },
+  "overrides": {
+    "rpc-websockets": {
+      "uuid": "^9.0.1"
+    }
   }
 }
