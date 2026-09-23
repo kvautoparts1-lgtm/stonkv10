@@ -67,6 +67,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // StonkFun API helpers
 // --------------------------------------------------------------------------
 
+const API_TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS || 20_000);
+
 async function apiGet(path, maxAttempts = 6) {
   const url = `${API}${path}`;
   let attempt = 0;
@@ -75,7 +77,7 @@ async function apiGet(path, maxAttempts = 6) {
     let res;
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 20_000);
+      const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
       res = await fetch(url, { signal: controller.signal });
       clearTimeout(timeout);
     } catch (err) {
@@ -115,6 +117,8 @@ async function getAllRewardTokens() {
   let page = 1;
   let consecutiveFailedPages = 0;
   const all = [];
+  const skippedPages = [];
+  let lastPageReached = 0;
 
   while (page <= MAX_PAGES) {
     let data;
@@ -122,6 +126,7 @@ async function getAllRewardTokens() {
       data = await apiGet(`/tokens?mode=reward&pageSize=${pageSize}&page=${page}`);
     } catch (err) {
       consecutiveFailedPages++;
+      skippedPages.push(page);
       console.warn(`[skip page] ${page}: ${err.message}`);
       if (consecutiveFailedPages >= 5) {
         console.warn(`[stop paging] 5 consecutive pages failed — using ${all.length} token(s) collected so far`);
@@ -132,6 +137,7 @@ async function getAllRewardTokens() {
       continue;
     }
     consecutiveFailedPages = 0;
+    lastPageReached = page;
     const tokens = data.tokens || data.items || data.results || [];
     all.push(...tokens);
     if (DEBUG) console.log(`[debug] page ${page}: ${tokens.length} tokens`);
@@ -140,7 +146,30 @@ async function getAllRewardTokens() {
     await sleep(REQUEST_DELAY_MS);
   }
 
-  return all;
+  // Dedupe, just in case a retried page's tokens overlap with a prior page.
+  const seenMints = new Set();
+  const deduped = [];
+  for (const t of all) {
+    const mint = t.mint || t.address || t.mintAddress;
+    const key = mint || JSON.stringify(t);
+    if (seenMints.has(key)) continue;
+    seenMints.add(key);
+    deduped.push(t);
+  }
+
+  console.log(
+    `[pagination summary] pages fetched=${lastPageReached} skipped=${skippedPages.length}` +
+    (skippedPages.length ? ` (page numbers: ${skippedPages.join(', ')})` : '') +
+    ` | tokens collected=${all.length} | unique after dedupe=${deduped.length}`
+  );
+  if (skippedPages.length > 0) {
+    console.warn(
+      `[warning] ${skippedPages.length} page(s) never loaded — this pass's token list is INCOMPLETE ` +
+      `(missing up to ~${skippedPages.length * pageSize} tokens). Consider raising API_TIMEOUT_MS if this happens often.`
+    );
+  }
+
+  return deduped;
 }
 
 // --------------------------------------------------------------------------
@@ -395,6 +424,11 @@ async function runScan() {
   }
 
   qualifying.sort((a, b) => b.pendingUsd - a.pendingUsd);
+
+  console.log(
+    `\n[scan summary] tokens scanned=${stats.total} \u2192 volume match=${stats.volumeInRange} ` +
+    `\u2192 rewards match=${stats.rewardsOk} \u2192 final match=${qualifying.length}`
+  );
 
   console.log(`\n--- ${qualifying.length} token(s) matching all three filters ---`);
   if (qualifying.length === 0) {
