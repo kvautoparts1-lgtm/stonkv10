@@ -1,0 +1,17 @@
+{
+  "name": "stonkfun-rewards-scanner",
+  "version": "1.0.0",
+  "description": "Scans every StonkFun reward-mode token for volume $5k-$10k, pending rewards $46+, and at most 3 holders. Logs to console and optionally posts to a Telegram channel.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@solana/web3.js": "^1.99.0"
+  }
+}
